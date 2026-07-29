@@ -72,6 +72,8 @@ try
     app.UseExceptionHandler();
 
     app.MapHealthEndpoints();
+    app.MapJobEndpoints();
+    app.MapConfigEndpoints();
 
     Log.Information(
         "Automation agent starting on port {Port} (loopbackOnly={LoopbackOnly})",

@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
@@ -15,7 +15,7 @@ namespace NewHorizon.Automation.ErpClient;
 public sealed class HttpErpClient : IErpClient
 {
     /// <summary>
-    /// Sent on every creating call. If the ERP honours it (design doc §18.3) it becomes a second
+    /// Sent on every creating call. If the ERP honours it (design doc Â§18.3) it becomes a second
     /// line of defence; the client does not depend on it, because query-before-create already
     /// guarantees duplicate-safety on its own.
     /// </summary>
@@ -28,49 +28,52 @@ public sealed class HttpErpClient : IErpClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<HttpErpClient> _logger;
     private readonly AutoShopFieldMap _fields;
+    private readonly ErpEndpointOptions _endpoints;
 
     public HttpErpClient(
         HttpClient httpClient,
         ILogger<HttpErpClient> logger,
-        IOptions<AutoShopFieldMap>? fields = null)
+        IOptions<AutoShopFieldMap>? fields = null,
+        IOptions<ErpEndpointOptions>? endpoints = null)
     {
         _httpClient = httpClient;
         _logger = logger;
 
-        // Optional so a host that has not configured the mapping still gets the documented
-        // defaults rather than a startup failure.
+        // Both optional so a host that has not configured them still gets the documented defaults
+        // rather than a startup failure.
         _fields = fields?.Value ?? AutoShopFieldMap.Default;
+        _endpoints = endpoints?.Value ?? new ErpEndpointOptions();
     }
 
     public Task<ErpDocumentResult> DeAllocateAsync(
         DeAllocationRequest request,
         CancellationToken cancellationToken) =>
-        PostAsync(ErpEndpoints.DeAllocation, request, request.Context, "deallocation", cancellationToken);
+        PostAsync(_endpoints.DeAllocation, request, request.Context, "deallocation", cancellationToken);
 
     public Task<ErpDocumentResult> AllocateAsync(
         AllocationRequest request,
         CancellationToken cancellationToken) =>
-        PostAsync(ErpEndpoints.Allocation, request, request.Context, "allocation", cancellationToken);
+        PostAsync(_endpoints.Allocation, request, request.Context, "allocation", cancellationToken);
 
     public Task<ErpDocumentResult> CreateWorkOrderAsync(
         WorkOrderRequest request,
         CancellationToken cancellationToken) =>
-        PostAsync(ErpEndpoints.WorkOrder, request, request.Context, "workorder", cancellationToken);
+        PostAsync(_endpoints.WorkOrder, request, request.Context, "workorder", cancellationToken);
 
     public Task<ErpDocumentResult> CreatePurchaseRequisitionAsync(
         PurchaseRequisitionRequest request,
         CancellationToken cancellationToken) =>
-        PostAsync(ErpEndpoints.PurchaseRequisition, request, request.Context, "purchase-requisition", cancellationToken);
+        PostAsync(_endpoints.PurchaseRequisition, request, request.Context, "purchase-requisition", cancellationToken);
 
     public Task<ErpDocumentResult> CreateLaborRequisitionAsync(
         LaborRequisitionRequest request,
         CancellationToken cancellationToken) =>
-        PostAsync(ErpEndpoints.LaborRequisition, request, request.Context, "labor-requisition", cancellationToken);
+        PostAsync(_endpoints.LaborRequisition, request, request.Context, "labor-requisition", cancellationToken);
 
     public Task<ErpDocumentResult> AttachOafLinkAsync(
         OafLinkRequest request,
         CancellationToken cancellationToken) =>
-        PostAsync(ErpEndpoints.OafLink, request, request.Context, "oaf-link", cancellationToken);
+        PostAsync(_endpoints.OafLink, request, request.Context, "oaf-link", cancellationToken);
 
     public async Task<ExistingDocumentResult> FindExistingDocumentAsync(
         ErpOperationRequest request,
@@ -80,7 +83,7 @@ public sealed class HttpErpClient : IErpClient
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(documentKind);
 
-        var uri = $"{ErpEndpoints.ExistingDocument}?documentType={Uri.EscapeDataString(request.DocumentType)}"
+        var uri = $"{_endpoints.ExistingDocument}?documentType={Uri.EscapeDataString(request.DocumentType)}"
             + $"&documentId={Uri.EscapeDataString(request.DocumentId)}"
             + $"&documentKind={Uri.EscapeDataString(documentKind)}";
 
@@ -89,7 +92,7 @@ public sealed class HttpErpClient : IErpClient
 
         return await ErpResponseHandler.ReadAsync<ExistingDocumentResult>(
             response,
-            ErpEndpoints.ExistingDocument,
+            _endpoints.ExistingDocument,
             cancellationToken);
     }
 
@@ -101,7 +104,7 @@ public sealed class HttpErpClient : IErpClient
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(transitionKind);
 
-        var uri = $"{ErpEndpoints.VerifyAutomation}?documentType={Uri.EscapeDataString(request.DocumentType)}"
+        var uri = $"{_endpoints.VerifyAutomation}?documentType={Uri.EscapeDataString(request.DocumentType)}"
             + $"&documentId={Uri.EscapeDataString(request.DocumentId)}"
             + $"&transitionKind={Uri.EscapeDataString(transitionKind)}";
 
@@ -110,7 +113,7 @@ public sealed class HttpErpClient : IErpClient
 
         var outcome = await ErpResponseHandler.ReadAsync<ErpAutomationOutcome>(
             response,
-            ErpEndpoints.VerifyAutomation,
+            _endpoints.VerifyAutomation,
             cancellationToken);
 
         _logger.LogInformation(
@@ -133,12 +136,12 @@ public sealed class HttpErpClient : IErpClient
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        using var httpRequest = CreateJsonRequest(HttpMethod.Post, ErpEndpoints.NetShortage, request, request);
+        using var httpRequest = CreateJsonRequest(HttpMethod.Post, _endpoints.NetShortage, request, request);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
         return await ErpResponseHandler.ReadAsync<ShortageResult>(
             response,
-            ErpEndpoints.NetShortage,
+            _endpoints.NetShortage,
             cancellationToken);
     }
 
@@ -150,14 +153,14 @@ public sealed class HttpErpClient : IErpClient
 
         using var httpRequest = CreateJsonRequest(
             HttpMethod.Post,
-            ErpEndpoints.MilShortage,
+            _endpoints.MilShortage,
             request,
             request.Context);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
         return await ErpResponseHandler.ReadAsync<ShortageResult>(
             response,
-            ErpEndpoints.MilShortage,
+            _endpoints.MilShortage,
             cancellationToken);
     }
 
@@ -169,14 +172,14 @@ public sealed class HttpErpClient : IErpClient
 
         using var httpRequest = CreateJsonRequest(
             HttpMethod.Post,
-            ErpEndpoints.AllocationStatus,
+            _endpoints.AllocationStatus,
             request,
             request);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
         return await ErpResponseHandler.ReadAsync<AllocationStatusResult>(
             response,
-            ErpEndpoints.AllocationStatus,
+            _endpoints.AllocationStatus,
             cancellationToken);
     }
 
@@ -184,14 +187,14 @@ public sealed class HttpErpClient : IErpClient
         DateTimeOffset sinceUtc,
         CancellationToken cancellationToken)
     {
-        var uri = $"{ErpEndpoints.PendingDocuments}?since={Uri.EscapeDataString(sinceUtc.ToString("O"))}";
+        var uri = $"{_endpoints.PendingDocuments}?since={Uri.EscapeDataString(sinceUtc.ToString("O"))}";
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Get, uri);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
         var documents = await ErpResponseHandler.ReadAsync<List<PendingDocument>>(
             response,
-            ErpEndpoints.PendingDocuments,
+            _endpoints.PendingDocuments,
             cancellationToken);
 
         return documents;
@@ -203,12 +206,12 @@ public sealed class HttpErpClient : IErpClient
 
     public async Task<IReadOnlyList<OafAwaitingSjo>> GetOafAwaitingSjoAsync(CancellationToken cancellationToken)
     {
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Get, ErpEndpoints.OafAwaitingSjo);
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Get, _endpoints.OafAwaitingSjo);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
         return await ErpResponseHandler.ReadAsync<List<OafAwaitingSjo>>(
             response,
-            ErpEndpoints.OafAwaitingSjo,
+            _endpoints.OafAwaitingSjo,
             cancellationToken);
     }
 
@@ -222,7 +225,7 @@ public sealed class HttpErpClient : IErpClient
 
         using var httpRequest = CreateJsonRequest(
             HttpMethod.Post,
-            ErpEndpoints.CreateSjoFromOaf,
+            _endpoints.CreateSjoFromOaf,
             new { oafNumber },
             request);
 
@@ -232,40 +235,40 @@ public sealed class HttpErpClient : IErpClient
 
         return await ErpResponseHandler.ReadAsync<ErpDocumentResult>(
             response,
-            ErpEndpoints.CreateSjoFromOaf,
+            _endpoints.CreateSjoFromOaf,
             cancellationToken);
     }
 
     public async Task<IReadOnlyList<ErpSite>> GetSitesAsync(CancellationToken cancellationToken)
     {
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Get, ErpEndpoints.SiteList);
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Get, _endpoints.SiteList);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
         return await ErpResponseHandler.ReadAsync<List<ErpSite>>(
             response,
-            ErpEndpoints.SiteList,
+            _endpoints.SiteList,
             cancellationToken);
     }
 
     public Task<IReadOnlyList<SjoSequenceRow>> GetSjoSequenceAsync(
         string siteId,
         CancellationToken cancellationToken) =>
-        GetRowsAsync(ErpEndpoints.SjoSequence(siteId), siteId, cancellationToken);
+        GetRowsAsync(_endpoints.SjoSequence(siteId), siteId, cancellationToken);
 
     public Task<SequenceSubmissionResult> SubmitSjoSequenceAsync(
         string siteId,
         IReadOnlyList<SjoSequenceRow> orderedRows,
         CancellationToken cancellationToken) =>
-        SubmitSequenceAsync(ErpEndpoints.SjoSequence(siteId), siteId, orderedRows, cancellationToken);
+        SubmitSequenceAsync(_endpoints.SjoSequence(siteId), siteId, orderedRows, cancellationToken);
 
     public Task<IReadOnlyList<SjoSequenceRow>> GetAutoShopAsync(
         string siteId,
         CancellationToken cancellationToken) =>
-        GetRowsAsync(ErpEndpoints.AutoShop(siteId), siteId, cancellationToken);
+        GetRowsAsync(_endpoints.AutoShop(siteId), siteId, cancellationToken);
 
     /// <summary>
     /// Reads the rows as the JSON the ERP actually sent. Deserialising into a typed model would
-    /// drop every property the agent does not know about — and this workflow's whole job is to hand
+    /// drop every property the agent does not know about â€” and this workflow's whole job is to hand
     /// that payload back to the ERP intact.
     /// </summary>
     private async Task<IReadOnlyList<SjoSequenceRow>> GetRowsAsync(
@@ -306,7 +309,7 @@ public sealed class HttpErpClient : IErpClient
         string siteId,
         IReadOnlyList<SjoSequenceRow> orderedRows,
         CancellationToken cancellationToken) =>
-        SubmitSequenceAsync(ErpEndpoints.AutoShop(siteId), siteId, orderedRows, cancellationToken);
+        SubmitSequenceAsync(_endpoints.AutoShop(siteId), siteId, orderedRows, cancellationToken);
 
     private async Task<SequenceSubmissionResult> SubmitSequenceAsync(
         string endpoint,
@@ -317,7 +320,7 @@ public sealed class HttpErpClient : IErpClient
         ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
         ArgumentNullException.ThrowIfNull(orderedRows);
 
-        // The rows the ERP sent, in the agreed order and with the flag set — nothing else altered,
+        // The rows the ERP sent, in the agreed order and with the flag set â€” nothing else altered,
         // and nothing dropped. Serialising the wrapper instead would post the agent's model of a
         // row rather than the ERP's own row.
         var body = new JsonArray(orderedRows.Select(row => (JsonNode)row.Payload.DeepClone()).ToArray());
@@ -421,7 +424,7 @@ public sealed class HttpErpClient : IErpClient
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
         {
-            // Network drop, timeout, or an open circuit breaker — all worth another attempt.
+            // Network drop, timeout, or an open circuit breaker â€” all worth another attempt.
             throw new ErpTransientException(
                 "The ERP could not be reached. Automation will retry automatically.",
                 $"'{request.RequestUri}' failed: {ex.Message}",

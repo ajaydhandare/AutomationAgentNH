@@ -71,7 +71,28 @@ curl http://localhost:5080/api/automation/health
 Expect `checks.database = "Healthy"`. `checks.erpApi` stays `Unhealthy` until `ErpApi:BaseUrl` and
 the service credentials point at a reachable ERP.
 
+## Scripts
+
+| Script | Does |
+|---|---|
+| `install.ps1` | Publishes, applies the schema, seeds config, creates the service with restart-on-failure. Leaves it stopped so secrets can be set first — `-ShowSecretHelp` prints the variables. |
+| `update.ps1` | Stop → deploy → migrate → start, keeping the previous build at `<InstallPath>.backup`. |
+| `uninstall.ps1` | Stops and removes the service. Never touches the database. |
+
 ## Update sequence
 
-Stop the service → deploy binaries → `dotnet ef database update` → start. In-flight jobs resume on
-their own: resume is the first operation whose status is not `Completed`.
+Stop the service → deploy binaries → migrate → start; `update.ps1` does exactly this. Stopping
+first lets in-flight jobs reach a checkpoint boundary. Anything still `Running` when the process
+dies is re-queued by the orphan sweep on the next start and resumes at its first operation that is
+not `Completed`, so no ERP document is ever created twice.
+
+## What the agent does once started
+
+A timer starts one cycle per `ReconcileIntervalMinutes` (from `AutomationConfig`, not the file),
+subject to the licence, the enable flags and the working-hours window. A unique filtered index
+permits only one live cycle at a time, so a slow cycle simply causes the next tick to do nothing.
+`POST /api/automation/run-now` starts one immediately, ignoring the working-hours window but not
+the one-live-cycle rule.
+
+Every management endpoint requires the `X-Automation-Api-Key` header. `/api/automation/health` does
+not — a service monitor must reach it, and it discloses no job data.

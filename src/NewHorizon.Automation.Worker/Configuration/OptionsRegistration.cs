@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using NewHorizon.Automation.Application.Configuration;
 using NewHorizon.Automation.Application.Erp;
+using NewHorizon.Automation.ErpClient;
 
 namespace NewHorizon.Automation.Worker.Configuration;
 
@@ -37,6 +38,17 @@ public static class OptionsRegistration
         // Which JSON properties the agent reads and sets on an SJO row. The ERP team has not
         // confirmed these names, so they are bound separately and can be corrected on the server
         // without a rebuild. Unset leaves the documented defaults in place.
+        // ERP paths. Most are placeholders the ERP team has yet to confirm, so being able to
+        // correct one in config beats redeploying to change a string.
+        services.AddOptions<ErpEndpointOptions>()
+            .Bind(configuration.GetSection($"{AutomationAgentOptions.SectionName}:ErpEndpoints"))
+            .Validate(
+                endpoints => endpoints.SjoSequenceTemplate.Contains(ErpEndpointOptions.SiteIdToken, StringComparison.Ordinal)
+                    && endpoints.AutoShopTemplate.Contains(ErpEndpointOptions.SiteIdToken, StringComparison.Ordinal),
+                $"The per-site endpoint templates must contain '{ErpEndpointOptions.SiteIdToken}', "
+                + "or every site would be sent to the same URL.")
+            .ValidateOnStart();
+
         services.AddOptions<AutoShopFieldMap>()
             .Bind(configuration.GetSection($"{AutomationAgentOptions.SectionName}:AutoShop"))
             .Validate(

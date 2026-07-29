@@ -45,14 +45,40 @@ defines ports (`IErpClient`, `IJobRepository`, `IWorkflowEngine`, `IDecisionServ
 dotnet build NewHorizon.AutomationAgent.slnx
 dotnet run --project src/NewHorizon.Automation.Worker
 dotnet test
-dotnet test tests/UnitTests                                     # one project
+dotnet test tests/NewHorizon.Automation.UnitTests                 # one project
 dotnet test --filter "FullyQualifiedName~WorkflowEngineTests"    # one class/test
 dotnet ef migrations add <Name> -p src/NewHorizon.Automation.Infrastructure -s src/NewHorizon.Automation.Worker
 dotnet ef database update -p src/NewHorizon.Automation.Infrastructure -s src/NewHorizon.Automation.Worker
 ```
 
-Deployment scripts live in `deploy/` (install/update/uninstall `.ps1`); update sequence is
-stop → deploy → migrate → start, with in-flight jobs resuming automatically.
+The real connection string lives in `dotnet user-secrets` (Worker project), never in
+`appsettings.json`, which ships placeholders only. See [`deploy/README.md`](deploy/README.md) for
+the database and secret setup, and for the install/update/uninstall scripts in `deploy/`.
+
+## What actually runs (AutoShopCycle)
+
+The only live workflow. A **timer** — not the design doc's §6 ERP push, which does not apply since
+automation starts after a manually authorised OAF — enqueues one cycle; `JobDispatcherService`
+claims it; the engine walks it. Three hosted services in
+`Infrastructure/Hosting/`: scheduler, dispatcher, orphan recovery. They are registered by
+`AddAutomationHostedServices()` separately from `AddAutomationInfrastructure()` so test hosts get
+the application without a live timer.
+
+Two things about this workflow that differ from the rest of the design:
+
+- **A cycle has no document.** Its `DocumentId` is its start timestamp and its `DocumentType` is
+  `Cycle`, so the per-document idempotency key cannot express "only one at a time". A second
+  filtered unique index, `UX_AutomationJob_LiveCycle`, admits one live cycle per workflow type —
+  excluding `Completed` as well as `Cancelled`, because unlike a document a cycle is meant to run
+  again. `JobRepository.FindLiveEquivalentAsync` mirrors whichever index applies.
+- **The agent holds no business logic here.** Each operation is GET → build body → POST. The rows
+  travel as `JsonObject`, not a typed model, so every property the ERP sent comes back untouched;
+  the agent only sorts by delivery date and sets one flag. Typing the row would silently drop
+  fields on the way back.
+
+ERP paths (`AutomationAgent:ErpEndpoints`) and the row property names
+(`AutomationAgent:AutoShop`) are **configuration**, because most are still unconfirmed by the ERP
+team — correct one there rather than editing code.
 
 ## Architecture invariants
 

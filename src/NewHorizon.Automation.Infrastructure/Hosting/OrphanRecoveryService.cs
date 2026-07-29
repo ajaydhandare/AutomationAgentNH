@@ -69,8 +69,8 @@ public sealed class OrphanRecoveryService : BackgroundService
 
         var jobs = scope.ServiceProvider.GetRequiredService<IJobRepository>();
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
-
         var cutoff = clock.UtcNow - StaleAfter;
+
         var orphaned = await jobs.GetOrphanedRunningJobsAsync(cutoff, cancellationToken);
 
         if (orphaned.Count == 0)
@@ -89,8 +89,9 @@ public sealed class OrphanRecoveryService : BackgroundService
                 continue;
             }
 
-            // No delay: the job was abandoned, not failing, so there is nothing to back off from.
-            job.RequeueAfterTransientFailure(clock.UtcNow, TimeSpan.Zero);
+            // Not RequeueAfterTransientFailure: the job was abandoned, not failing, so there is no
+            // backoff to serve and its retry budget must not be charged for a crash.
+            job.MarkResumable();
             await jobs.SaveAsync(job, cancellationToken);
 
             _logger.LogInformation("Job {JobId} re-queued; it resumes at its last checkpoint", jobId);
