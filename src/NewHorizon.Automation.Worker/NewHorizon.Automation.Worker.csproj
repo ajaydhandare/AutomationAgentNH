@@ -21,6 +21,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Real connection strings and ERP credentials live in the per-developer secret store,
+         never in appsettings.json. See .claude/README.md and deploy/README.md. -->
+    <UserSecretsId>newhorizon-automation-agent</UserSecretsId>
   </PropertyGroup>
 
 </Project>

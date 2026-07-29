@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NewHorizon.Automation.Application.Abstractions;
 using NewHorizon.Automation.Application.Configuration;
 using NewHorizon.Automation.Application.Jobs;
+using NewHorizon.Automation.Application.Notifications;
+using NewHorizon.Automation.Infrastructure.Notifications;
 using NewHorizon.Automation.Infrastructure.Persistence;
 using NewHorizon.Automation.Infrastructure.Time;
 
@@ -33,6 +36,10 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<IJobRepository, JobRepository>();
         services.AddScoped<IAutomationConfigRepository, AutomationConfigRepository>();
+
+        // Log-based until the client confirms the real channel (§18). TryAdd so a host that
+        // registers a real notifier keeps it.
+        services.TryAddSingleton<INotificationService, LogNotificationService>();
 
         services.AddHealthChecks()
             .AddCheck<AutomationDatabaseHealthCheck>("database", tags: ["ready"]);

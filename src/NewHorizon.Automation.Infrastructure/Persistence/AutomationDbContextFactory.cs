@@ -10,15 +10,23 @@ namespace NewHorizon.Automation.Infrastructure.Persistence;
 /// </summary>
 public sealed class AutomationDbContextFactory : IDesignTimeDbContextFactory<AutomationDbContext>
 {
+    /// <summary>Must match &lt;UserSecretsId&gt; in NewHorizon.Automation.Worker.csproj.</summary>
+    private const string WorkerUserSecretsId = "newhorizon-automation-agent";
+
     private const string FallbackConnectionString =
-        "Server=.;Database=NewHorizon_Automation;Trusted_Connection=True;TrustServerCertificate=True;";
+        "Server=.;Database=PGTPL_AutomationAgent;Trusted_Connection=True;TrustServerCertificate=True;";
 
     public AutomationDbContext CreateDbContext(string[] args)
     {
+        // Same precedence the running service uses, so `dotnet ef` targets the database the
+        // developer actually runs against. User secrets and environment variables sit last
+        // because that is where the real connection string lives — appsettings.json only ever
+        // carries a placeholder.
         var configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: true)
             .AddJsonFile("appsettings.Development.json", optional: true)
+            .AddUserSecrets(WorkerUserSecretsId)
             .AddEnvironmentVariables()
             .Build();
 
