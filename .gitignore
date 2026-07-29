@@ -37,6 +37,9 @@ secrets.json
 *.pfx
 *.snk
 
+# ---- Docs: the Markdown is the source, the Word copy is generated ----
+doc/*.docx
+
 # ---- Claude Code: shared config IS committed, machine-local is not ----
 .claude/settings.local.json
 .claude/**/*.local.json
