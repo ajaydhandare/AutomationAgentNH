@@ -1,9 +1,9 @@
 namespace NewHorizon.Automation.ErpClient.Authentication;
 
 /// <summary>
-/// A cached ERP service token and the moment it stops being usable.
+/// A cached ERP login token and the moment it stops being usable.
 /// </summary>
-public sealed record ServiceToken(string AccessToken, DateTimeOffset ExpiresAtUtc)
+public sealed record ErpToken(string AccessToken, DateTimeOffset ExpiresAtUtc)
 {
     /// <summary>
     /// How far ahead of real expiry the token is treated as stale. A token that expires while

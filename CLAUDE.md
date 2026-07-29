@@ -145,11 +145,17 @@ at creation.
 
 ## Auth
 
-Agent → ERP uses a **service token** (client-credentials, `type = service`, exempt from ERP
-force-logout/idle-timeout, `AUTOMATION_AGENT` least-privilege role). `ErpAuthHandler :
-DelegatingHandler` caches the token, refreshes ~1–2 min before expiry, and re-authenticates once on
-401 — operation code never touches tokens. Secrets go in a protected store (DPAPI/machine), never
-source control.
+Agent → ERP signs in at `POST /api/v1/auth/login` with `userName` / `password` / `connStr` — the
+same endpoint the ERP UI uses. There is no service-token endpoint; this supersedes §15 of the design
+doc. See [`.claude/context/erp-login-authentication.md`](.claude/context/erp-login-authentication.md)
+for the verified contract and why the credentials sit in `appsettings.json` in clear.
+
+`ErpTokenProvider` holds one token for the whole process (24-hour lifetime, honouring the ERP's
+`validTo`), collapses a startup stampede into one login, and logs `ERP login successful …` with the
+timestamp and expiry. `ErpAuthHandler : DelegatingHandler` attaches it, refreshes ~2 min before
+expiry, and re-authenticates once on 401 — operation code never touches tokens.
+`ErpLoginStartupService` (registered by `AddErpLoginStartup()`, separately from `AddErpClient()`)
+signs in as soon as the agent starts.
 
 ERP → Agent is protected by a shared inbound API key plus loopback-only binding.
 

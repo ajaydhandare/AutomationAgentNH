@@ -62,11 +62,12 @@ public sealed class AutomationAgentOptionsValidatorTests
         },
         ErpApi = new ErpApiOptions
         {
-            BaseUrl = "http://localhost/NH_API_PROD",
-            ServiceTokenPath = "/api/auth/service-token",
-            ClientId = "automation-agent",
-            ClientSecret = "secret",
-            TokenTtlMinutes = 60,
+            BaseUrl = "http://localhost:4400",
+            LoginPath = "/api/v1/auth/login",
+            UserName = "automation",
+            Password = "secret",
+            LoginConnectionString = "Server=.;Database=ERP;uid=sa;pwd=;",
+            TokenTtlHours = 24,
             TimeoutSeconds = 30,
         },
         Host = new AgentHostOptions

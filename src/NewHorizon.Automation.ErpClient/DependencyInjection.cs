@@ -20,8 +20,8 @@ public static class DependencyInjection
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // The token client is deliberately plain: no auth handler (it *is* the auth call, and
-        // adding one would recurse) and no retry beyond its own timeout, because a bad secret
+        // The login client is deliberately plain: no auth handler (it *is* the auth call, and
+        // adding one would recurse) and no retry beyond its own timeout, because a bad password
         // must fail fast and loudly rather than be retried into a backoff loop.
         services.AddHttpClient(TokenHttpClientName, ConfigureBaseAddress);
 
@@ -44,6 +44,23 @@ public static class DependencyInjection
 
         services.AddHealthChecks()
             .AddCheck<ErpApiHealthCheck>("erpApi", tags: ["ready"]);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Signs in to the ERP as soon as the agent is running, rather than waiting for the first job.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="AddErpClient"/> for the same reason the timer and dispatcher are
+    /// separate from the infrastructure: an integration-test host composes the ERP client without
+    /// wanting a real sign-in fired at whatever it is pointed at.
+    /// </remarks>
+    public static IServiceCollection AddErpLoginStartup(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddHostedService<ErpLoginStartupService>();
 
         return services;
     }

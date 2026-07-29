@@ -28,11 +28,21 @@ public sealed class StubErpServer : IAsyncDisposable
     /// <summary>Number of tokens issued — proves caching prevents an auth call per request.</summary>
     public int TokensIssued;
 
-    /// <summary>When set, the token endpoint fails with this status instead of issuing a token.</summary>
+    /// <summary>Raw login bodies received, for asserting the agent posts the ERP's own contract.</summary>
+    public ConcurrentQueue<string> LoginBodies { get; } = new();
+
+    /// <summary>When set, the login endpoint fails with this status instead of issuing a token.</summary>
     public int? TokenEndpointStatusOverride { get; set; }
 
     /// <summary>Lifetime the stub reports; short values exercise proactive refresh.</summary>
     public int TokenExpiresInSeconds { get; set; } = 3600;
+
+    /// <summary>
+    /// Issue time the stub bases <c>validTo</c> on. The real ERP states an absolute expiry, so a
+    /// test driving a <see cref="MutableClock"/> must point this at the same clock — otherwise the
+    /// stub would date its tokens by wall time while the agent judges them by the test's.
+    /// </summary>
+    public Func<DateTimeOffset> NowUtc { get; set; } = () => DateTimeOffset.UtcNow;
 
     /// <summary>Tokens the stub will reject with 401, simulating a restarted ERP.</summary>
     public HashSet<string> RevokedTokens { get; } = [];
@@ -67,20 +77,36 @@ public sealed class StubErpServer : IAsyncDisposable
 
     private void MapEndpoints(WebApplication app)
     {
-        app.MapPost("/api/auth/service-token", (HttpContext context) =>
+        // Shaped like the ERP's real login: its envelope, its token object, its absolute expiry.
+        app.MapPost("/api/v1/auth/login", async (HttpContext context) =>
         {
+            using (var reader = new StreamReader(context.Request.Body))
+            {
+                LoginBodies.Enqueue(await reader.ReadToEndAsync());
+            }
+
             if (TokenEndpointStatusOverride is { } status)
             {
-                return Results.StatusCode(status);
+                return Results.Json(
+                    new { data = (object?)null, success = false, message = "InvalidUsernamePasswordKey" },
+                    statusCode: status);
             }
 
             var issued = Interlocked.Increment(ref TokensIssued);
 
             return Results.Ok(new
             {
-                access_token = $"stub-token-{issued}",
-                token_type = "Bearer",
-                expires_in = TokenExpiresInSeconds,
+                data = new
+                {
+                    token = new
+                    {
+                        value = $"stub-token-{issued}",
+                        validTo = NowUtc() + TimeSpan.FromSeconds(TokenExpiresInSeconds),
+                    },
+                    uid = "stub-uid",
+                },
+                success = true,
+                message = (string?)null,
             });
         });
 

@@ -46,6 +46,9 @@ try
     // AddAutomationInfrastructure so a test host can compose the same application without them.
     builder.Services.AddAutomationHostedServices();
 
+    // Sign in to the ERP at startup so the token is cached before the first cycle runs.
+    builder.Services.AddErpLoginStartup();
+
     // The management/read API is for the ERP only. Loopback binding is the outer boundary;
     // the inbound API key (Phase 6) is the inner one.
     var hostOptions = builder.Configuration

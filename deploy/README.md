@@ -38,15 +38,20 @@ to run against a database that is already partly migrated.
 
 ## Secrets
 
-`appsettings.json` carries **placeholders only** (`<store-protected>`, `<shared-secret>`) and is
-committed. Real values never are.
+`appsettings.json` carries **placeholders only** (`<shared-secret>`) for the automation database and
+the inbound API key, and is committed. Those real values never are.
+
+The **ERP login** is the deliberate exception: `AutomationAgent:ErpApi` holds the base URL, path,
+`UserName`, `Password` and `LoginConnectionString` in clear, because the agent runs on a private
+network on the client's own server and the API port changes per installation — an operator must be
+able to correct all of it without a rebuild. See
+[`.claude/context/erp-login-authentication.md`](../.claude/context/erp-login-authentication.md).
 
 Local development — per-developer secret store, outside the repository:
 
 ```powershell
 cd src/NewHorizon.Automation.Worker
 dotnet user-secrets set "AutomationAgent:Database:ConnectionString" "Server=<server>\<instance>;Database=PGTPL_AutomationAgent;Trusted_Connection=True;TrustServerCertificate=True"
-dotnet user-secrets set "AutomationAgent:ErpApi:ClientSecret" "<real-secret>"
 dotnet user-secrets set "AutomationAgent:Host:InboundApiKey" "<real-key>"
 ```
 
