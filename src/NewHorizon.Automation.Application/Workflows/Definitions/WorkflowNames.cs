@@ -1,0 +1,41 @@
+namespace NewHorizon.Automation.Application.Workflows.Definitions;
+
+/// <summary>
+/// The unique workflow type names. These are stored on every job and hashed into its idempotency
+/// key, so a name may not be changed once jobs exist for it.
+/// </summary>
+public static class WorkflowNames
+{
+    public const string Sjo = "SJO";
+    public const string Oaf = "OAF";
+    public const string Mil = "MIL";
+    public const string Cbom = "CBOM";
+    public const string AutoShop = "AutoShop";
+
+    /// <summary>The agent's real unit of work: one repeating cycle covering OAF → SJO → sequencing → AutoShop.</summary>
+    public const string AutoShopCycle = "AutoShopCycle";
+}
+
+/// <summary>
+/// Identifiers for transitions the ERP automates internally behind its own flag. The agent
+/// confirms these rather than performing them.
+/// </summary>
+public static class ErpTransitions
+{
+    public const string SalesOrderToOaf = "SO-to-OAF";
+    public const string SjoToCbom = "SJO-to-CBOM";
+}
+
+/// <summary>
+/// Document kinds passed to query-before-create, so the ERP knows which document the agent is
+/// asking about for this source document.
+/// </summary>
+public static class DocumentKinds
+{
+    public const string DeAllocation = "deallocation";
+    public const string Allocation = "allocation";
+    public const string WorkOrder = "workorder";
+    public const string PurchaseRequisition = "purchase-requisition";
+    public const string LaborRequisition = "labor-requisition";
+    public const string OafLink = "oaf-link";
+}

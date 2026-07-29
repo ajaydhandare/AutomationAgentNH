@@ -1,0 +1,135 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Start here (every session, every machine)
+
+1. Read `.claude/context/` — decisions confirmed with the client that the code and the design doc
+   do **not** record. Several of them override the design doc; see the note below.
+2. `Plan/NewHorizon_AutomationAgent_Design_v2.md` is the architecture baseline for structure, data
+   model, API surface, and execution semantics — authoritative **except** where a `.claude/context/`
+   note supersedes it (notably: the workflow is a timer-driven site-scoped batch cycle, not the
+   §6 per-document push model, and there is no Company/tenant dimension).
+3. Local SDK is .NET 10 (`dotnet --version` → 10.0.300).
+
+This repo is worked on by several developers from different machines, mostly through Claude Code.
+The shared Claude setup — `CLAUDE.md`, `.claude/settings.json`, `.claude/context/`, `.mcp.json` — is
+committed, so a fresh clone can start work from a prompt with no manual setup. Per-machine
+overrides belong in `.claude/settings.local.json`, which is git-ignored. See
+[`.claude/README.md`](.claude/README.md).
+
+## Current state
+
+The solution is scaffolded and building: all five `src/` projects, both test projects, EF Core
+migrations under `src/NewHorizon.Automation.Infrastructure/Persistence/Migrations`, and `deploy/`.
+Layout (§4 of the design doc):
+
+```
+NewHorizon.AutomationAgent.slnx
+└── src/
+    ├── NewHorizon.Automation.Worker          # Windows Service host + minimal management/read API
+    ├── NewHorizon.Automation.Application     # use cases, workflow orchestration, ports (interfaces)
+    ├── NewHorizon.Automation.Domain          # entities, workflow model, state machine (pure)
+    ├── NewHorizon.Automation.Infrastructure  # EF Core, hosted services, Serilog
+    └── NewHorizon.Automation.ErpClient       # typed ERP HTTP clients + Polly + auth handler
+└── tests/{UnitTests,IntegrationTests}
+```
+
+Clean Architecture: dependencies point inward only. Domain has no project references; Application
+defines ports (`IErpClient`, `IJobRepository`, `IWorkflowEngine`, `IDecisionService`,
+`INotificationService`, `IClock`) that Infrastructure and ErpClient implement.
+
+## Commands
+
+```powershell
+dotnet build NewHorizon.AutomationAgent.slnx
+dotnet run --project src/NewHorizon.Automation.Worker
+dotnet test
+dotnet test tests/UnitTests                                     # one project
+dotnet test --filter "FullyQualifiedName~WorkflowEngineTests"    # one class/test
+dotnet ef migrations add <Name> -p src/NewHorizon.Automation.Infrastructure -s src/NewHorizon.Automation.Worker
+dotnet ef database update -p src/NewHorizon.Automation.Infrastructure -s src/NewHorizon.Automation.Worker
+```
+
+Deployment scripts live in `deploy/` (install/update/uninstall `.ps1`); update sequence is
+stop → deploy → migrate → start, with in-flight jobs resuming automatically.
+
+## Architecture invariants
+
+These are the constraints that make the design work. Violating any of them silently breaks
+duplicate-safety, tenancy, or the ERP boundary.
+
+- **API-only in both directions.** ERP → Agent for control/read; Agent → ERP for execution.
+  Neither side ever opens the other's database. No EF entity, connection string, or SQL in this
+  solution may point at the ERP database.
+- **The agent never writes ERP data directly.** Every ERP mutation goes through an ERP application
+  API so ERP validation, permissions, audit, and transactions apply.
+- **AI is never in the execution path.** `IDecisionService` only recommends (vendor, priority,
+  risk); every create is a deterministic ERP API call.
+- **Everything is idempotent and resumable.** Job level: unique filtered index on
+  `IdempotencyKey = hash(Company, DocumentType, DocumentId, WorkflowType)` where
+  `Status <> Cancelled`. Operation level: check stored `ErpDocumentRef` or query-before-create.
+  Push triggers and the reconciliation poll both run, so both layers must hold.
+- **Automation is license/config gated.** Disabled ⇒ the ERP behaves exactly as today.
+
+## The execution model
+
+Four levels, defined in §7 of the design doc:
+
+| Level | Persisted as |
+|---|---|
+| Workflow — one run for one document | `AutomationJob` |
+| Stage — SJO / OAF / MIL / CBOM / AutoShop, run sequentially | grouping column on steps |
+| **Operation** — API-group inside a stage, **the checkpoint unit** | `AutomationJobStep` (one row each) |
+| ERP API call | `AutomationLog` |
+
+Checkpoint after *every* operation (status + `ErpDocumentRef` + payloads) before advancing.
+**Resume = first operation whose status is not `Completed`.** Adding a new workflow means adding a
+new `WorkflowDefinition` (ordered stages of ordered operations) — the engine, queue, retry, logging,
+and API surface must not need changes.
+
+Job states: `Pending → Running → {AwaitingApproval, Failed, Completed, Cancelled}`, with
+`Failed → Running` on retry/resume and `AwaitingApproval → Running` on approve.
+
+Semantics that are easy to get wrong:
+- `resume` is failure recovery; `approve`/`reject` are business decisions on an `AwaitingApproval`
+  gate and must record actor + remarks for audit. The approval UI never calls `resume`.
+- Only transient failures (timeout, 5xx, breaker-open, network) retry with backoff+jitter. Business
+  failures go straight to human review with a layman message — never retried.
+- Manual retry re-queues at elevated priority; the claiming query orders by `Priority`.
+- Job claiming uses `UPDATE TOP (@batch) ... WITH (UPDLOCK, READPAST)` so parallel workers skip
+  locked rows instead of blocking.
+- Errors carry both `TechnicalMessage` and `LaymanMessage`; the ERP UI shows layman by default.
+
+## Triggers
+
+Three sources funnel into one idempotent `enqueue`: (1) ERP push on Sales Order save
+(fire-and-forget), (2) the `Pending` job set itself as the internal queue — no external broker,
+(3) a 5-minute reconciliation poll that asks the ERP for documents with no started job. Write
+execution logic once, behind `enqueue`.
+
+## Configuration split
+
+`appsettings.json` holds **only bootstrap**: SQL connection string, ERP base URL + service auth,
+host port / loopback binding / inbound API key, and defaults (§16). Per-tenant runtime behavior —
+Full/Partial mode, working hours, retry count, parallel workers, retention windows — lives in the
+`AutomationConfig` table per Company+Module and is changed through the UI, never the file.
+The agent reads config **fresh at the start of each job**; a running job keeps the mode it captured
+at creation.
+
+## Auth
+
+Agent → ERP uses a **service token** (client-credentials, `type = service`, exempt from ERP
+force-logout/idle-timeout, `AUTOMATION_AGENT` least-privilege role). `ErpAuthHandler :
+DelegatingHandler` caches the token, refreshes ~1–2 min before expiry, and re-authenticates once on
+401 — operation code never touches tokens. Secrets go in a protected store (DPAPI/machine), never
+source control.
+
+ERP → Agent is protected by a shared inbound API key plus loopback-only binding.
+
+## Open questions
+
+§18 of the design doc lists five items to confirm before/at build — notably whether ERP create
+endpoints accept an idempotency key (decides query-before-create logic), the exact operation lists
+for the CBOM and AutoShop stages, and which operations require approval in Partial mode. Don't
+invent answers; flag them.

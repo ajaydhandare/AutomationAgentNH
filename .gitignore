@@ -1,0 +1,47 @@
+# ---- Build output ----
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+
+# ---- Visual Studio / Rider / VS Code ----
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+.vscode/*
+!.vscode/extensions.json
+
+# ---- .NET ----
+project.lock.json
+project.fragment.lock.json
+*.nuget.props
+*.nuget.targets
+msbuild.log
+msbuild.err
+msbuild.wrn
+TestResults/
+coverage*.json
+coverage*.xml
+*.coverage
+*.trx
+
+# ---- Secrets / machine-local config (NEVER commit) ----
+appsettings.*.local.json
+appsettings.Production.json
+secrets.json
+*.pfx
+*.snk
+
+# ---- Claude Code: shared config IS committed, machine-local is not ----
+.claude/settings.local.json
+.claude/**/*.local.json
+
+# ---- OS ----
+Thumbs.db
+desktop.ini
+.DS_Store
