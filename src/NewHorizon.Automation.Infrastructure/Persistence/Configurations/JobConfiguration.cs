@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using NewHorizon.Automation.Application.Workflows.Definitions;
 using NewHorizon.Automation.Domain.Jobs;
 
 namespace NewHorizon.Automation.Infrastructure.Persistence.Configurations;
@@ -60,6 +61,22 @@ public sealed class JobConfiguration : IEntityTypeConfiguration<Job>
             .IsUnique()
             .HasFilter("[Status] <> 'Cancelled'")
             .HasDatabaseName("UX_AutomationJob_IdempotencyKey_Live");
+
+        // A cycle has no document, so the key above cannot express "do not start another one":
+        // each cycle's id is the moment it began, which is unique by construction. What must be
+        // prevented is two cycles being live at once — two agents against this one database would
+        // otherwise both create SJOs for the same OAFs.
+        //
+        // Completed and Cancelled are excluded rather than Cancelled alone, because unlike a
+        // document a cycle is meant to run again: once one finishes the next may start.
+        // Spelled out with <> rather than NOT IN: a filtered index predicate may only use
+        // comparisons joined by AND, so IN / NOT IN / OR are rejected by SQL Server.
+        builder.HasIndex(job => job.WorkflowType)
+            .IsUnique()
+            .HasFilter(
+                $"[DocumentType] = '{DocumentTypes.Cycle}' "
+                + "AND [Status] <> 'Completed' AND [Status] <> 'Cancelled'")
+            .HasDatabaseName("UX_AutomationJob_LiveCycle");
 
         builder.HasIndex(job => job.DocumentId)
             .HasDatabaseName("IX_AutomationJob_DocumentId");

@@ -5,6 +5,7 @@ using NewHorizon.Automation.Application.Abstractions;
 using NewHorizon.Automation.Application.Configuration;
 using NewHorizon.Automation.Application.Jobs;
 using NewHorizon.Automation.Application.Notifications;
+using NewHorizon.Automation.Infrastructure.Hosting;
 using NewHorizon.Automation.Infrastructure.Notifications;
 using NewHorizon.Automation.Infrastructure.Persistence;
 using NewHorizon.Automation.Infrastructure.Time;
@@ -43,6 +44,27 @@ public static class DependencyInjection
 
         services.AddHealthChecks()
             .AddCheck<AutomationDatabaseHealthCheck>("database", tags: ["ready"]);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Starts the three services that actually make the agent do work: the timer that begins a
+    /// cycle, the dispatcher that runs claimed jobs, and the sweep that recovers jobs abandoned by
+    /// a stopped process.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="AddAutomationInfrastructure"/>. The integration tests
+    /// host the same application to exercise its endpoints, and a live timer there would enqueue
+    /// and run real cycles against whatever ERP the test host is pointed at.
+    /// </remarks>
+    public static IServiceCollection AddAutomationHostedServices(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddHostedService<CycleSchedulerService>();
+        services.AddHostedService<JobDispatcherService>();
+        services.AddHostedService<OrphanRecoveryService>();
 
         return services;
     }

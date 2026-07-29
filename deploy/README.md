@@ -33,7 +33,8 @@ sqlcmd -S <server>\<instance> -d PGTPL_AutomationAgent -i deploy/sql/002_SeedAut
 job-claiming `UPDLOCK, READPAST` updates.
 
 Offline alternative to step 2, where `dotnet ef` cannot run on the server:
-`deploy/sql/001_InitialAutomationSchema.sql` is the same migration as an idempotent script.
+`deploy/sql/001_Schema.sql` is every migration as one idempotent script — safe to re-run, and safe
+to run against a database that is already partly migrated.
 
 ## Secrets
 

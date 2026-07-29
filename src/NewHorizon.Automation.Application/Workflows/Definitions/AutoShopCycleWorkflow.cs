@@ -134,7 +134,7 @@ public static class AutoShopCycleWorkflow
             return OperationResult.Skip($"Site {siteId} has no SJO to sequence.");
         }
 
-        var ordered = SortByDeliveryDate(rows);
+        var ordered = PrepareForSubmission(rows);
 
         var submission = await erpClient.SubmitSjoSequenceAsync(siteId, ordered, cancellationToken);
 
@@ -158,7 +158,7 @@ public static class AutoShopCycleWorkflow
             return OperationResult.Skip($"Site {siteId} has nothing for AutoShop.");
         }
 
-        var ordered = SortByDeliveryDate(rows);
+        var ordered = PrepareForSubmission(rows);
 
         var submission = await erpClient.SubmitAutoShopAsync(siteId, ordered, cancellationToken);
 
@@ -166,6 +166,22 @@ public static class AutoShopCycleWorkflow
             submission.Reference,
             requestPayload: $$"""{"siteId":"{{siteId}}","rows":{{ordered.Count}}}""",
             responsePayload: $$"""{"rowsSubmitted":{{submission.RowsSubmitted}}}""");
+    }
+
+    /// <summary>
+    /// The only two things the agent does to a row before handing it back: order it, and set the
+    /// flag the ERP acts on. Every other property travels through exactly as the ERP sent it.
+    /// </summary>
+    internal static IReadOnlyList<SjoSequenceRow> PrepareForSubmission(IEnumerable<SjoSequenceRow> rows)
+    {
+        var ordered = SortByDeliveryDate(rows);
+
+        foreach (var row in ordered)
+        {
+            row.MarkForSubmission();
+        }
+
+        return ordered;
     }
 
     /// <summary>

@@ -42,6 +42,10 @@ try
     builder.Services.AddAutomationInfrastructure(connectionString);
     builder.Services.AddErpClient();
 
+    // The timer, dispatcher and orphan sweep. Registered here rather than inside
+    // AddAutomationInfrastructure so a test host can compose the same application without them.
+    builder.Services.AddAutomationHostedServices();
+
     // The management/read API is for the ERP only. Loopback binding is the outer boundary;
     // the inbound API key (Phase 6) is the inner one.
     var hostOptions = builder.Configuration

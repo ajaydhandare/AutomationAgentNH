@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using NewHorizon.Automation.Application.Abstractions;
 using NewHorizon.Automation.Application.Jobs;
+using NewHorizon.Automation.Application.Workflows.Definitions;
 using NewHorizon.Automation.Domain.Errors;
 using NewHorizon.Automation.Domain.Jobs;
 using NewHorizon.Automation.Domain.Logging;
@@ -35,8 +36,9 @@ public sealed class JobRepository : IJobRepository
         ArgumentNullException.ThrowIfNull(job);
 
         // Cheap path: a live job for this document usually already exists when the reconciliation
-        // poll re-reports something the push already handled.
-        var existing = await GetByIdempotencyKeyAsync(job.IdempotencyKey, cancellationToken);
+        // poll re-reports something the push already handled. A cycle is matched on being live at
+        // all rather than on its key, because every cycle's key is deliberately distinct.
+        var existing = await FindLiveEquivalentAsync(job, cancellationToken);
         if (existing is not null)
         {
             _logger.LogDebug(
@@ -61,7 +63,7 @@ public sealed class JobRepository : IJobRepository
             // loser simply adopts the winner's job rather than failing the caller.
             _dbContext.Entry(job).State = EntityState.Detached;
 
-            var winner = await GetByIdempotencyKeyAsync(job.IdempotencyKey, cancellationToken);
+            var winner = await FindLiveEquivalentAsync(job, cancellationToken);
             if (winner is null)
             {
                 throw;
@@ -76,6 +78,29 @@ public sealed class JobRepository : IJobRepository
             return new JobEnqueueResult(winner, WasCreated: false);
         }
     }
+
+    /// <summary>
+    /// The job an enqueue should adopt instead of creating a new one, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// Two different rules, because the two kinds of job mean different things by "duplicate".
+    /// A document job is duplicated when another job exists for the same document. A cycle is
+    /// duplicated when another cycle is simply still live — its identity is its start time, so no
+    /// two cycles ever share a key. Each rule mirrors the index that enforces it, so the racing
+    /// path resolves to the same winner the database picked.
+    /// </remarks>
+    private Task<Job?> FindLiveEquivalentAsync(Job job, CancellationToken cancellationToken) =>
+        job.DocumentType == DocumentTypes.Cycle
+            ? _dbContext.Jobs
+                .AsNoTracking()
+                .Where(candidate =>
+                    candidate.DocumentType == DocumentTypes.Cycle
+                    && candidate.WorkflowType == job.WorkflowType
+                    && candidate.Status != JobStatus.Completed
+                    && candidate.Status != JobStatus.Cancelled)
+                .OrderBy(candidate => candidate.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken)
+            : GetByIdempotencyKeyAsync(job.IdempotencyKey, cancellationToken);
 
     public async Task<IReadOnlyList<Guid>> ClaimPendingJobsAsync(int batchSize, CancellationToken cancellationToken)
     {

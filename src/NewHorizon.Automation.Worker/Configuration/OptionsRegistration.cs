@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using NewHorizon.Automation.Application.Configuration;
+using NewHorizon.Automation.Application.Erp;
 
 namespace NewHorizon.Automation.Worker.Configuration;
 
@@ -32,6 +33,16 @@ public static class OptionsRegistration
             .ValidateOnStart();
 
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<AutomationAgentOptions>>().Value);
+
+        // Which JSON properties the agent reads and sets on an SJO row. The ERP team has not
+        // confirmed these names, so they are bound separately and can be corrected on the server
+        // without a rebuild. Unset leaves the documented defaults in place.
+        services.AddOptions<AutoShopFieldMap>()
+            .Bind(configuration.GetSection($"{AutomationAgentOptions.SectionName}:AutoShop"))
+            .Validate(
+                map => !string.IsNullOrWhiteSpace(map.SelectionFlag),
+                "AutomationAgent:AutoShop:SelectionFlag must name the property the agent sets before submitting.")
+            .ValidateOnStart();
 
         return services;
     }

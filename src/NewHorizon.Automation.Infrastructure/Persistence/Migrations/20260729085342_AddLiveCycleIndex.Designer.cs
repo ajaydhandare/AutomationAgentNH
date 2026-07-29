@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NewHorizon.Automation.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using NewHorizon.Automation.Infrastructure.Persistence;
 namespace NewHorizon.Automation.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AutomationDbContext))]
-    partial class AutomationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260729085342_AddLiveCycleIndex")]
+    partial class AddLiveCycleIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

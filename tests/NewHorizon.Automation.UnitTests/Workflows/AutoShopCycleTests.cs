@@ -1,3 +1,4 @@
+﻿using System.Text.Json.Nodes;
 using FluentAssertions;
 using NewHorizon.Automation.Application.Erp;
 using NewHorizon.Automation.Application.Workflows.Definitions;
@@ -7,7 +8,7 @@ namespace NewHorizon.Automation.UnitTests.Workflows;
 
 /// <summary>
 /// The agent's real unit of work: one repeating cycle that starts after OAF creation and loops
-/// over every site. Covers the two things that are easy to get wrong — the site loop resuming at
+/// over every site. Covers the two things that are easy to get wrong â€” the site loop resuming at
 /// the failed site, and the delivery-date ordering that <em>is</em> the sequence.
 /// </summary>
 public sealed class AutoShopCycleTests
@@ -22,8 +23,8 @@ public sealed class AutoShopCycleTests
         {
             var siteId = $"SITE-{i:D2}";
             harness.Erp.Sites.Add(new ErpSite(siteId, $"Plant {i}"));
-            harness.Erp.SjoBySite[siteId] = [new SjoSequenceRow($"SJO-{i}-A", Day.AddDays(i), null)];
-            harness.Erp.AutoShopBySite[siteId] = [new SjoSequenceRow($"SJO-{i}-A", Day.AddDays(i), null)];
+            harness.Erp.SjoBySite[siteId] = [SjoSequenceRow.Create($"SJO-{i}-A", Day.AddDays(i))];
+            harness.Erp.AutoShopBySite[siteId] = [SjoSequenceRow.Create($"SJO-{i}-A", Day.AddDays(i))];
         }
 
         return harness;
@@ -39,7 +40,7 @@ public sealed class AutoShopCycleTests
 
         job.Status.Should().Be(JobStatus.Completed);
 
-        // Sequencing for every site first, then AutoShop for every site — the order described.
+        // Sequencing for every site first, then AutoShop for every site â€” the order described.
         job.Steps.Select(step => step.Stage).Should().Equal(
             "OafToSjo",
             "Discovery",
@@ -54,7 +55,7 @@ public sealed class AutoShopCycleTests
 
         var job = await harness.RunAsync(harness.NewJob());
 
-        // Two static steps plus one per site per stage — each individually checkpointed.
+        // Two static steps plus one per site per stage â€” each individually checkpointed.
         job.Steps.Should().HaveCount(2 + (4 * 2));
         job.Steps.Where(step => step.Stage == "SjoSequence").Select(step => step.Target)
             .Should().Equal("SITE-01", "SITE-02", "SITE-03", "SITE-04");
@@ -82,7 +83,7 @@ public sealed class AutoShopCycleTests
 
         job.Status.Should().Be(JobStatus.Completed);
 
-        // Sites 1 and 2 were not resubmitted on resume — the whole point of per-site checkpoints.
+        // Sites 1 and 2 were not resubmitted on resume â€” the whole point of per-site checkpoints.
         var sequenceSubmissions = harness.Erp.Submissions
             .Where(s => s.Endpoint == "sjo-sequence")
             .Select(s => s.SiteId)
@@ -118,10 +119,10 @@ public sealed class AutoShopCycleTests
         // Deliberately out of order, and one row with no delivery date at all.
         harness.Erp.SjoBySite["SITE-01"] =
         [
-            new SjoSequenceRow("SJO-LATE", Day.AddDays(10), null),
-            new SjoSequenceRow("SJO-NONE", null, null),
-            new SjoSequenceRow("SJO-EARLY", Day.AddDays(1), null),
-            new SjoSequenceRow("SJO-MID", Day.AddDays(5), null),
+            SjoSequenceRow.Create("SJO-LATE", Day.AddDays(10)),
+            SjoSequenceRow.Create("SJO-NONE", null),
+            SjoSequenceRow.Create("SJO-EARLY", Day.AddDays(1)),
+            SjoSequenceRow.Create("SJO-MID", Day.AddDays(5)),
         ];
 
         await harness.RunAsync(harness.NewJob());
@@ -169,7 +170,7 @@ public sealed class AutoShopCycleTests
         await harness.RunAsync(harness.NewJob());
         var afterFirstCycle = harness.Erp.CreateCountFor("sjo");
 
-        // A second cycle sees the same OAFs still listed — the ERP has not refreshed them yet.
+        // A second cycle sees the same OAFs still listed â€” the ERP has not refreshed them yet.
         var secondHarness = NewHarness();
         secondHarness.Erp.OafAwaitingSjo.Add(new OafAwaitingSjo("OAF-1", "SITE-01"));
         await secondHarness.RunAsync(secondHarness.NewJob("CYCLE-2"));
@@ -193,6 +194,60 @@ public sealed class AutoShopCycleTests
             .Select(step => step.DisplayName)
             .Should().Contain("SequenceSite / SITE-01")
             .And.Contain("AutoShopSite / SITE-02");
+    }
+
+    [Fact]
+    public async Task Every_field_the_erp_sent_comes_back_untouched_apart_from_the_flag()
+    {
+        // The point of the workflow: the agent orders the rows and sets one flag. Anything else it
+        // received must reach the ERP again exactly as sent, including properties the agent has
+        // never heard of and nested structures it does not model.
+        var harness = NewHarness(siteCount: 1);
+
+        harness.Erp.SjoBySite["SITE-01"] =
+        [
+            SjoSequenceRow.FromJson(new JsonObject
+            {
+                ["sjoNumber"] = "SJO-1",
+                ["deliveryDate"] = "2026-08-02T00:00:00.0000000+00:00",
+                ["customerName"] = "Acme Engineering",
+                ["revision"] = 4,
+                ["lines"] = new JsonArray(new JsonObject { ["itemCode"] = "X-1", ["qty"] = 7 }),
+            }),
+        ];
+
+        await harness.RunAsync(harness.NewJob());
+
+        var submitted = harness.Erp.Submissions
+            .Single(s => s.Endpoint == "sjo-sequence")
+            .Rows.Single()
+            .Payload;
+
+        submitted["customerName"]!.GetValue<string>().Should().Be("Acme Engineering");
+        submitted["revision"]!.GetValue<int>().Should().Be(4);
+        submitted["lines"]![0]!["itemCode"]!.GetValue<string>().Should().Be("X-1");
+        submitted["lines"]![0]!["qty"]!.GetValue<int>().Should().Be(7);
+
+        // The one deliberate mutation.
+        submitted["isSelected"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Every_submitted_row_carries_the_flag()
+    {
+        var harness = NewHarness(siteCount: 1);
+
+        harness.Erp.SjoBySite["SITE-01"] =
+        [
+            SjoSequenceRow.Create("SJO-LATE", Day.AddDays(10)),
+            SjoSequenceRow.Create("SJO-EARLY", Day.AddDays(1)),
+        ];
+
+        await harness.RunAsync(harness.NewJob());
+
+        harness.Erp.Submissions
+            .Single(s => s.Endpoint == "sjo-sequence")
+            .Rows.Should().OnlyContain(row => row.Payload["isSelected"]!.GetValue<bool>());
     }
 
     [Fact]

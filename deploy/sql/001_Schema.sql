@@ -242,3 +242,24 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260729085342_AddLiveCycleIndex'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [UX_AutomationJob_LiveCycle] ON [AutomationJob] ([WorkflowType]) WHERE [DocumentType] = ''Cycle'' AND [Status] <> ''Completed'' AND [Status] <> ''Cancelled''');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260729085342_AddLiveCycleIndex'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260729085342_AddLiveCycleIndex', N'10.0.10');
+END;
+
+COMMIT;
+GO
+

@@ -149,6 +149,70 @@ public sealed class JobRepositoryTests
         reloaded.NextStep()!.OperationName.Should().Be("Allocation");
     }
 
+    [SkippableFact]
+    public async Task A_second_cycle_cannot_start_while_one_is_still_live()
+    {
+        Skip.If(!_fixture.IsAvailable, _fixture.SkipReason);
+        await _fixture.ResetAsync();
+
+        // Two agents against one database, both ticking. Without the live-cycle index they would
+        // both create SJOs for the same OAFs.
+        var first = await EnqueueCycleAsync();
+        var second = await EnqueueCycleAsync();
+
+        first.WasCreated.Should().BeTrue();
+        second.WasCreated.Should().BeFalse();
+        second.Job.Id.Should().Be(first.Job.Id);
+    }
+
+    [SkippableFact]
+    public async Task A_finished_cycle_does_not_block_the_next_one()
+    {
+        Skip.If(!_fixture.IsAvailable, _fixture.SkipReason);
+        await _fixture.ResetAsync();
+
+        var first = await EnqueueCycleAsync();
+
+        await using (var context = _fixture.CreateContext())
+        {
+            var repository = CreateRepository(context);
+            var job = await repository.GetAsync(first.Job.Id, CancellationToken.None);
+            job!.Claim(Now);
+
+            // A quiet cycle: nothing was awaiting an SJO, so its one operation is skipped rather
+            // than executed. The job may only complete once no operation is outstanding.
+            job.Steps[0].Skip(Now, "No OAF is awaiting an SJO.");
+            job.Complete(Now);
+            await repository.SaveAsync(job, CancellationToken.None);
+        }
+
+        // Unlike a document, a cycle is meant to run again — which is why the filter excludes
+        // Completed as well as Cancelled.
+        var second = await EnqueueCycleAsync();
+
+        second.WasCreated.Should().BeTrue();
+        second.Job.Id.Should().NotBe(first.Job.Id);
+    }
+
+    private async Task<Application.Jobs.JobEnqueueResult> EnqueueCycleAsync()
+    {
+        await using var context = _fixture.CreateContext();
+        var repository = CreateRepository(context);
+
+        // Each cycle's identity is the moment it began, so no two cycles ever share a key: the
+        // live-cycle index is the only thing standing between them.
+        var job = Job.Create(
+            "AutoShopCycle",
+            "Cycle",
+            $"cycle-{Guid.NewGuid():N}",
+            AutomationMode.Full,
+            Now);
+
+        job.PlanSteps([new PlannedOperation("OafToSjo", "CreateSjoFromPendingOaf")]);
+
+        return await repository.EnqueueAsync(job, CancellationToken.None);
+    }
+
     private static string NewDocumentId() => $"SO-{Guid.NewGuid():N}";
 
     private async Task<Application.Jobs.JobEnqueueResult> EnqueueAsync(string documentId, int priority = 0)

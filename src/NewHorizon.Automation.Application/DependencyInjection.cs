@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using NewHorizon.Automation.Application.Jobs;
 using NewHorizon.Automation.Application.Workflows;
 using NewHorizon.Automation.Application.Workflows.Definitions;
 
@@ -26,6 +27,9 @@ public static class DependencyInjection
         ]));
 
         services.AddScoped<IWorkflowEngine, WorkflowEngine>();
+
+        // The one funnel every trigger goes through — the timer and the manual run-now call.
+        services.AddScoped<ICycleEnqueueService, CycleEnqueueService>();
 
         return services;
     }

@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NewHorizon.Automation.Application.Erp;
 
 namespace NewHorizon.Automation.ErpClient;
@@ -25,11 +27,19 @@ public sealed class HttpErpClient : IErpClient
 
     private readonly HttpClient _httpClient;
     private readonly ILogger<HttpErpClient> _logger;
+    private readonly AutoShopFieldMap _fields;
 
-    public HttpErpClient(HttpClient httpClient, ILogger<HttpErpClient> logger)
+    public HttpErpClient(
+        HttpClient httpClient,
+        ILogger<HttpErpClient> logger,
+        IOptions<AutoShopFieldMap>? fields = null)
     {
         _httpClient = httpClient;
         _logger = logger;
+
+        // Optional so a host that has not configured the mapping still gets the documented
+        // defaults rather than a startup failure.
+        _fields = fields?.Value ?? AutoShopFieldMap.Default;
     }
 
     public Task<ErpDocumentResult> DeAllocateAsync(
@@ -237,19 +247,10 @@ public sealed class HttpErpClient : IErpClient
             cancellationToken);
     }
 
-    public async Task<IReadOnlyList<SjoSequenceRow>> GetSjoSequenceAsync(
+    public Task<IReadOnlyList<SjoSequenceRow>> GetSjoSequenceAsync(
         string siteId,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
-
-        var endpoint = ErpEndpoints.SjoSequence(siteId);
-
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        using var response = await SendAsync(httpRequest, cancellationToken);
-
-        return await ErpResponseHandler.ReadAsync<List<SjoSequenceRow>>(response, endpoint, cancellationToken);
-    }
+        CancellationToken cancellationToken) =>
+        GetRowsAsync(ErpEndpoints.SjoSequence(siteId), siteId, cancellationToken);
 
     public Task<SequenceSubmissionResult> SubmitSjoSequenceAsync(
         string siteId,
@@ -257,18 +258,48 @@ public sealed class HttpErpClient : IErpClient
         CancellationToken cancellationToken) =>
         SubmitSequenceAsync(ErpEndpoints.SjoSequence(siteId), siteId, orderedRows, cancellationToken);
 
-    public async Task<IReadOnlyList<SjoSequenceRow>> GetAutoShopAsync(
+    public Task<IReadOnlyList<SjoSequenceRow>> GetAutoShopAsync(
+        string siteId,
+        CancellationToken cancellationToken) =>
+        GetRowsAsync(ErpEndpoints.AutoShop(siteId), siteId, cancellationToken);
+
+    /// <summary>
+    /// Reads the rows as the JSON the ERP actually sent. Deserialising into a typed model would
+    /// drop every property the agent does not know about — and this workflow's whole job is to hand
+    /// that payload back to the ERP intact.
+    /// </summary>
+    private async Task<IReadOnlyList<SjoSequenceRow>> GetRowsAsync(
+        string endpoint,
         string siteId,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
 
-        var endpoint = ErpEndpoints.AutoShop(siteId);
-
         using var httpRequest = new HttpRequestMessage(HttpMethod.Get, endpoint);
         using var response = await SendAsync(httpRequest, cancellationToken);
 
-        return await ErpResponseHandler.ReadAsync<List<SjoSequenceRow>>(response, endpoint, cancellationToken);
+        var payload = await ErpResponseHandler.ReadAsync<JsonArray>(response, endpoint, cancellationToken);
+
+        var rows = new List<SjoSequenceRow>(payload.Count);
+
+        foreach (var node in payload)
+        {
+            // A null or non-object entry is the ERP's data, not a failure the agent can fix, so it
+            // is dropped with a warning rather than throwing away the whole site.
+            if (node is JsonObject row)
+            {
+                rows.Add(SjoSequenceRow.FromJson(row, _fields));
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Ignoring a non-object row from {Endpoint} for site {SiteId}",
+                    endpoint,
+                    siteId);
+            }
+        }
+
+        return rows;
     }
 
     public Task<SequenceSubmissionResult> SubmitAutoShopAsync(
@@ -286,9 +317,14 @@ public sealed class HttpErpClient : IErpClient
         ArgumentException.ThrowIfNullOrWhiteSpace(siteId);
         ArgumentNullException.ThrowIfNull(orderedRows);
 
+        // The rows the ERP sent, in the agreed order and with the flag set — nothing else altered,
+        // and nothing dropped. Serialising the wrapper instead would post the agent's model of a
+        // row rather than the ERP's own row.
+        var body = new JsonArray(orderedRows.Select(row => (JsonNode)row.Payload.DeepClone()).ToArray());
+
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = JsonContent.Create(orderedRows, options: SerializerOptions),
+            Content = JsonContent.Create(body, options: SerializerOptions),
         };
 
         // Keyed on the site and the rows being submitted, so a replay of the same sequence is

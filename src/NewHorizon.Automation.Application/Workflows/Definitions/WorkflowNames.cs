@@ -17,6 +17,15 @@ public static class WorkflowNames
 }
 
 /// <summary>
+/// What a job is about. Most workflows run for one ERP document; a cycle runs for no document at
+/// all, and <see cref="Cycle"/> is what the live-cycle index keys off to allow only one at a time.
+/// </summary>
+public static class DocumentTypes
+{
+    public const string Cycle = "Cycle";
+}
+
+/// <summary>
 /// Identifiers for transitions the ERP automates internally behind its own flag. The agent
 /// confirms these rather than performing them.
 /// </summary>
