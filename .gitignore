@@ -48,3 +48,6 @@ doc/*.docx
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# ---- Generated documentation artifacts ----
+doc/__pycache__/
